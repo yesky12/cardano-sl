@@ -14,6 +14,9 @@ module Pos.Diffusion.Full
 import           Nub (ordNub)
 import           Universum
 
+import qualified Control.Concurrent.Async as Async
+import qualified Control.Concurrent.STM as STM
+import           Control.Exception (Exception, throwIO)
 import           Control.Monad.Fix (MonadFix)
 import qualified Data.Map as M
 import           Data.Time.Units (Microsecond, Millisecond, Second, convertUnit)
@@ -106,13 +109,14 @@ diffusionLayerFull
        , MonadMask m
        , WithLogger m
        )
-    => FullDiffusionConfiguration
+    => (forall y . d y -> IO y)
+    -> FullDiffusionConfiguration
     -> NetworkConfig KademliaParams
     -> Maybe (EkgNodeMetrics d)
     -> Logic d
     -> (DiffusionLayer d -> m x)
     -> m x
-diffusionLayerFull fdconf networkConfig mEkgNodeMetrics logic k = do
+diffusionLayerFull runIO fdconf networkConfig mEkgNodeMetrics logic k = do
     -- Make the outbound queue using network policies.
     oq :: OQ.OutboundQ (EnqueuedConversation d) NodeId Bucket <-
         initQueue networkConfig (enmStore <$> mEkgNodeMetrics)
@@ -123,7 +127,8 @@ diffusionLayerFull fdconf networkConfig mEkgNodeMetrics logic k = do
         mKademliaParams = topologyRunKademlia topology
     bracketTransportTCP (fdcConvEstablishTimeout fdconf) (ncTcpAddr networkConfig) $ \transport -> do
         (fullDiffusion, internals) <-
-            diffusionLayerFullExposeInternals fdconf
+            diffusionLayerFullExposeInternals runIO
+                                              fdconf
                                               transport
                                               oq
                                               (ncDefaultPort networkConfig)
@@ -145,7 +150,8 @@ diffusionLayerFullExposeInternals
        , MonadIO m
        , MonadMask m
        )
-    => FullDiffusionConfiguration
+    => (forall y . d y -> IO y)
+    -> FullDiffusionConfiguration
     -> Transport d
     -> OQ.OutboundQ (EnqueuedConversation d) NodeId Bucket
     -> Word16 -- ^ Port on which peers are assumed to listen.
@@ -161,7 +167,8 @@ diffusionLayerFullExposeInternals
     -> Maybe (EkgNodeMetrics d)
     -> Logic d
     -> m (Diffusion d, RunFullDiffusionInternals d)
-diffusionLayerFullExposeInternals fdconf
+diffusionLayerFullExposeInternals runIO
+                                  fdconf
                                   transport
                                   oq
                                   defaultPort
@@ -313,6 +320,7 @@ diffusionLayerFullExposeInternals fdconf
         -- will be very involved. Should make it top-level I think.
         runDiffusionLayer :: forall y . (FullDiffusionInternals d -> d y) -> d y
         runDiffusionLayer = runDiffusionLayerFull
+            runIO
             transport
             oq
             (fdcConvEstablishTimeout fdconf)
@@ -326,10 +334,9 @@ diffusionLayerFullExposeInternals fdconf
             listeners
 
         enqueue :: EnqueueMsg d
-        enqueue = makeEnqueueMsg ourVerInfo $ \msgType k -> do
+        enqueue = makeEnqueueMsg ourVerInfo $ \msgType k -> liftIO $ do
             itList <- OQ.enqueue oq msgType (EnqueuedConversation (msgType, k))
-            let itMap = M.fromList itList
-            return ((>>= either throwM return) <$> itMap)
+            return (liftIO . oqWaitForIt <$> M.fromList itList)
 
         getBlocks :: NodeId
                   -> HeaderHash
@@ -369,7 +376,7 @@ diffusionLayerFullExposeInternals fdconf
         sendPskHeavy = Diffusion.Delegation.sendPskHeavy enqueue
 
         formatPeers :: forall r . (forall a . Format r a -> a) -> d (Maybe r)
-        formatPeers formatter = Just <$> OQ.dumpState oq formatter
+        formatPeers formatter = Just <$> liftIO (OQ.dumpState oq formatter)
 
         diffusion :: Diffusion d
         diffusion = Diffusion {..}
@@ -385,7 +392,8 @@ diffusionLayerFullExposeInternals fdconf
 runDiffusionLayerFull
     :: forall d x .
        ( DiffusionWorkMode d, MonadFix d )
-    => Transport d
+    => (forall y . d y -> IO y)
+    -> Transport d
     -> OQ.OutboundQ (EnqueuedConversation d) NodeId Bucket
     -> Microsecond -- ^ Conversation establish timeout
     -> VerInfo
@@ -398,7 +406,8 @@ runDiffusionLayerFull
     -> (VerInfo -> [Listener d])
     -> (FullDiffusionInternals d -> d x)
     -> d x
-runDiffusionLayerFull transport
+runDiffusionLayerFull runIO
+                      transport
                       oq
                       convEstablishTimeout
                       ourVerInfo
@@ -412,7 +421,7 @@ runDiffusionLayerFull transport
                       k =
     maybeBracketKademliaInstance mKademliaParams defaultPort $ \mKademlia ->
         timeWarpNode transport convEstablishTimeout ourVerInfo listeners $ \nd converse ->
-            withAsync (OQ.dequeueThread oq (sendMsgFromConverse converse)) $ \dthread -> do
+            withAsync (liftIO $ OQ.dequeueThread oq (sendMsgFromConverse runIO converse)) $ \dthread -> do
                 link dthread
                 case mEkgNodeMetrics of
                     Just ekgNodeMetrics -> registerEkgNodeMetrics ekgNodeMetrics nd
@@ -431,9 +440,8 @@ runDiffusionLayerFull transport
   where
     oqEnqueue :: Msg -> (NodeId -> VerInfo -> Conversation PackingType d t) -> d (Map NodeId (d t))
     oqEnqueue msgType l = do
-        itList <- OQ.enqueue oq msgType (EnqueuedConversation (msgType, l))
-        let itMap = M.fromList itList
-        return ((>>= either throwM return) <$> itMap)
+        itList <- liftIO $ OQ.enqueue oq msgType (EnqueuedConversation (msgType, l))
+        return (liftIO . oqWaitForIt <$> M.fromList itList)
     subscriptionThread mKademliaInst sactions = case mSubscriptionWorker of
         Just (SubscriptionWorkerBehindNAT dnsDomains) ->
             dnsSubscriptionWorker oq defaultPort dnsDomains keepaliveTimer slotDuration sactions
@@ -444,11 +452,34 @@ runDiffusionLayerFull transport
             Just kInst -> dhtSubscriptionWorker oq kInst nodeType valency fallbacks sactions
         Nothing -> pure ()
 
+-- | Wait on the TVar until it's either aborted or dequeued.
+-- If it's aborted, throw an exception (TBD consider giving
+-- Nothing instead?) and if it's dequeued, wait on the thread.
+-- FIXME we'll want to refine this a bit. Callers should be able
+-- to get a hold of the Async instead.
+oqWaitForIt :: STM.TVar (OQ.PacketStatus a) -> IO a
+oqWaitForIt tvar = do
+    it <- STM.atomically $ do
+        status <- STM.readTVar tvar
+        case status of
+            OQ.PacketEnqueued        -> STM.retry
+            OQ.PacketAborted         -> return Nothing
+            OQ.PacketDequeued thread -> return (Just thread)
+    case it of
+        Nothing -> throwIO Aborted
+        Just thread -> Async.wait thread
+
+data Aborted = Aborted
+  deriving (Show)
+
+instance Exception Aborted
+
 sendMsgFromConverse
-    :: Converse PackingType PeerData d
-    -> OQ.SendMsg d (EnqueuedConversation d) NodeId
-sendMsgFromConverse converse (EnqueuedConversation (_, k)) nodeId =
-    converseWith converse nodeId (k nodeId)
+    :: (forall x . d x -> IO x)
+    -> Converse PackingType PeerData d
+    -> OQ.SendMsg (EnqueuedConversation d) NodeId
+sendMsgFromConverse runIO converse (EnqueuedConversation (_, k)) nodeId =
+    runIO $ converseWith converse nodeId (k nodeId)
 
 -- | Bring up a time-warp node. It will come down when the continuation ends.
 timeWarpNode

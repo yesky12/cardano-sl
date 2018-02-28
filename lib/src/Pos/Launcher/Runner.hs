@@ -72,6 +72,7 @@ runRealMode
     -> Production a
 runRealMode nr@NodeResources {..} (actionSpec, outSpecs) =
     elimRealMode nr $ runServer
+        (runProduction . elimRealMode nr)
         ncNodeParams
         (EkgNodeMetrics nrEkgStore (runProduction . elimRealMode nr))
         outSpecs
@@ -128,14 +129,15 @@ runServer
        , HasBlockConfiguration
        , HasNodeConfiguration
        )
-    => NodeParams
+    => (forall y . m y -> IO y)
+    -> NodeParams
     -> EkgNodeMetrics m
     -> OutSpecs
     -> ActionSpec m t
     -> m t
-runServer NodeParams {..} ekgNodeMetrics _ (ActionSpec act) =
+runServer runIO NodeParams {..} ekgNodeMetrics _ (ActionSpec act) =
     exitOnShutdown . logicLayerFull jsonLog $ \logicLayer ->
-        diffusionLayerFull fdconf npNetworkConfig (Just ekgNodeMetrics) (logic logicLayer) $ \diffusionLayer -> do
+        diffusionLayerFull runIO fdconf npNetworkConfig (Just ekgNodeMetrics) (logic logicLayer) $ \diffusionLayer -> do
             when npEnableMetrics (registerEkgMetrics ekgStore)
             runLogicLayer logicLayer $
                 runDiffusionLayer diffusionLayer $

@@ -132,7 +132,7 @@ action opts@AuxxOptions {..} command = do
           bracketNodeResources nodeParams sscParams txpGlobalSettings initNodeDBs $ \nr ->
               elimRealMode nr $ toRealMode $
                   logicLayerFull jsonLog $ \logicLayer ->
-                      diffusionLayerFull fdconf (npNetworkConfig nodeParams) Nothing (logic logicLayer) $ \diffusionLayer -> do
+                      diffusionLayerFull (runProduction . elimRealMode nr . toRealMode) fdconf (npNetworkConfig nodeParams) Nothing (logic logicLayer) $ \diffusionLayer -> do
                           let modifier = if aoStartMode == WithNode then runNodeWithSinglePlugin nr else identity
                               (ActionSpec auxxModeAction, _) = modifier (auxxPlugin opts command)
                           runLogicLayer logicLayer (runDiffusionLayer diffusionLayer (auxxModeAction (diffusion diffusionLayer)))
