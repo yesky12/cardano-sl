@@ -12,9 +12,14 @@ import           Cardano.Wallet.API.V1.Types
 import           Cardano.Wallet.TypeLits (KnownSymbols, symbolVals)
 import qualified Data.List as List
 import qualified Data.Text as T
+import qualified Data.Text.Buildable
 import           Data.Typeable (Typeable)
+import           Formatting (bprint, build, formatToString, sformat, (%))
 import qualified Generics.SOP as SOP
 import           GHC.TypeLits (Symbol)
+import           Pos.Util.LogSafe (BuildableSafeGen (..), buildSafe, deriveSafeBuildableExt)
+import           Pos.Util.Servant (ApiCanLogArg (..), ApiHasArgClass (..))
+import           Serokell.Util (listJson)
 
 import           Cardano.Wallet.API.Indices
 import           Network.HTTP.Types (parseQueryText)
@@ -36,13 +41,17 @@ data FilterOperations a where
                -> FilterOperations a
 
 instance Show (FilterOperations a) where
-    show = show . flattenOperations
+    show = show @_ @[String] . flattenOperations show
 
--- | Handy helper function to show opaque 'FilterOperation'(s), mostly for
--- debug purposes.
-flattenOperations :: FilterOperations a -> [String]
-flattenOperations NoFilters       = mempty
-flattenOperations (FilterOp f fs) = show f : flattenOperations fs
+instance Buildable (FilterOperations a) where
+    build = bprint listJson . flattenOperations (bprint build)
+
+-- | Handy helper function to transform 'FilterOperation'(s) into list.
+flattenOperations :: (forall ix. FilterOperation ix a -> b)
+                  -> FilterOperations a
+                  -> [b]
+flattenOperations _ NoFilters           = mempty
+flattenOperations trans (FilterOp f fs) = trans f : flattenOperations trans fs
 
 -- A custom ordering for a 'FilterOperation'. Conceptually theh same as 'Ordering' but with the ">=" and "<="
 -- variants.
@@ -53,6 +62,13 @@ data FilterOrdering =
     | LesserThan
     | LesserThanEqual
     deriving (Show, Eq)
+
+instance Buildable FilterOrdering where
+    build Equal            = "=="
+    build GreaterThan      = ">"
+    build GreaterThanEqual = ">="
+    build LesserThan       = "<"
+    build LesserThanEqual  = "<="
 
 -- A filter operation on the data model
 data FilterOperation ix a =
@@ -66,10 +82,15 @@ data FilterOperation ix a =
     -- ^ Do not alter the resource.
 
 instance Show (FilterOperation ix a) where
-    show (FilterByIndex _)            = "FilterByIndex"
-    show (FilterByPredicate theOrd _) = "FilterByPredicate[" <> show theOrd <> "]"
-    show (FilterByRange _ _)          = "FilterByRange"
-    show FilterIdentity               = "FilterIdentity"
+    show = formatToString build
+
+instance BuildableSafeGen (FilterOperation ix a) where
+    buildSafeGen _sl (FilterByIndex _)            = "FilterByIndex"
+    buildSafeGen _sl (FilterByPredicate theOrd _) = "FilterByPredicate[" <> bprint build theOrd <> "]"
+    buildSafeGen _sl (FilterByRange _ _)          = "FilterByRange"
+    buildSafeGen _sl FilterIdentity               = "FilterIdentity"
+
+deriveSafeBuildableExt $ \newVar -> [t| FilterOperation $newVar $newVar |]
 
 -- | Represents a filter operation on the data model.
 -- Examples:
@@ -129,6 +150,21 @@ instance ( HasServer subApi ctx
                           return $ toFilterOperations req allParams (Proxy @ixs)
 
         in route (Proxy :: Proxy subApi) context delayed
+
+-- | Defines name of @FilterBy syms res@ as sum of @syms@,
+-- and specifies parameter 'FilterBy' provides.
+-- Used in e.g. logging.
+instance KnownSymbols syms => ApiHasArgClass (FilterBy syms a) where
+    type ApiArg (FilterBy syms a) = FilterOperations a
+
+    apiArgName _ =
+        let filterNames = mconcat . intersperse ", " $ symbolVals (Proxy @syms)
+        in  formatToString ("filters: ("%build%")") filterNames
+
+-- | Defines how 'FilterBy' is logged by just refering to
+-- 'instance Buildable SortOperations'.
+instance KnownSymbols syms => ApiCanLogArg (FilterBy syms a) where
+    toLogParamInfo _ param = \sl -> sformat (buildSafe sl) param
 
 parseFilterParams :: forall a ixs. (
                      SOP.All (ToIndex a) ixs

@@ -9,17 +9,22 @@ import qualified Prelude
 import           Universum
 
 import           Cardano.Wallet.API.Indices
+import           Cardano.Wallet.API.Types
 import           Cardano.Wallet.API.V1.Types
 import           Cardano.Wallet.TypeLits (KnownSymbols, symbolVals)
 import qualified Data.List as List
 import qualified Data.Text as T
+import qualified Data.Text.Buildable
 import           Data.Typeable (Typeable)
+import           Formatting (bprint, build, builder, stext, (%))
 import qualified Generics.SOP as SOP
 import           GHC.TypeLits (Symbol)
 
 import           Network.HTTP.Types (parseQueryText)
 import           Network.Wai (Request, rawQueryString)
 import           Pos.Core as Core
+import           Pos.Util.Servant (HasLoggingServer (..), LoggingApiRec, addParamLogInfo)
+import           Serokell.Util.ANSI (Color (..), colorizeDull)
 import           Servant
 import           Servant.Server.Internal
 
@@ -34,6 +39,10 @@ data SortDirection =
     | SortDescending
     deriving Show
 
+instance Buildable SortDirection where
+    build SortAscending  = "asc."
+    build SortDescending = "desc."
+
 -- | A sort operation on an index @ix@ for a resource 'a'.
 data SortOperation ix a =
       SortByIndex SortDirection (Proxy ix)
@@ -41,8 +50,9 @@ data SortOperation ix a =
     | SortIdentity
     -- ^ Do not perform sorting on this resource.
 
-instance Show (SortOperations a) where
-    show = show . flattenSortOperations
+instance Show (SortOperation ix a) where
+    show (SortByIndex dir _) = "SortByIndex[" <> show dir <> "]"
+    show SortIdentity        = "SortIdentity"
 
 -- | A "bag" of sort operations, where the index constraint are captured in
 -- the inner closure of 'SortOp'.
@@ -53,15 +63,15 @@ data SortOperations a where
              -> SortOperations a
              -> SortOperations a
 
-instance Show (SortOperation ix a) where
-    show (SortByIndex dir _) = "SortByIndex[" <> show dir <> "]"
-    show SortIdentity        = "SortIdentity"
+instance Show (SortOperations a) where
+    show = show @_ @[Text] . flattenSortOperations show
 
--- | Handy helper function to show opaque 'FilterOperation'(s), mostly for
--- debug purposes.
-flattenSortOperations :: SortOperations a -> [String]
-flattenSortOperations NoSorts       = mempty
-flattenSortOperations (SortOp f fs) = show f : flattenSortOperations fs
+-- | Handy helper function to convert 'SortOperation'(s) into list.
+flattenSortOperations :: (forall ix. SortOperation ix a -> b)
+                      -> SortOperations a
+                      -> [b]
+flattenSortOperations _     NoSorts       = mempty
+flattenSortOperations trans (SortOp f fs) = trans f : flattenSortOperations trans fs
 
 -- | This is a slighly boilerplat-y type family which maps symbols to
 -- indices, so that we can later on reify them into a list of valid indices.
@@ -124,6 +134,50 @@ instance ( HasServer subApi ctx
                         return $ toSortOperations req allParams (Proxy @ixs)
 
         in route (Proxy :: Proxy subApi) context delayed
+
+-- | Logs all non-identity sorting parameters.
+--
+-- Example: @filter: asc id, desc balance@.
+--
+-- Default implementation of this instance for 'SortBy syms res'
+-- (note OVERLAPPING) would print logs in format of
+-- "<some name dependant on 'syms'>: <prettified SortOperations>".
+-- With current implementation of 'SortOperations' the best logs we can get
+-- would be like "filter: asc, desc, none",
+-- or "filter (id, created_at, balance): asc, desc, none",
+-- because 'SortOperations' itself doesn't remember name of parameter it sorts
+-- upon and those logs seem a bit cumbersome with growth of number of parameters
+-- we allow to sort on.
+-- Thus custom instance which cuts off "none"s is used.
+instance {-# OVERLAPPING #-}
+         ( HasLoggingServer config subApi ctx
+         , SortParams syms res ~ ixs
+         , KnownSymbols syms
+         , ToSortOperations ixs res
+         , SOP.All (ToIndex res) ixs
+         ) =>
+         HasLoggingServer config (SortBy syms res :> subApi) ctx where
+    routeWithLog =
+        mapRouter @(SortBy syms res :> LoggingApiRec config subApi) route $
+            \(paramsInfo, f) sortOps ->
+            (updateParamsInfo sortOps paramsInfo, f sortOps)
+      where
+        updateParamsInfo sortOps =
+            addParamLogInfo $ \_sl -> colorizeDull White $ buildSortOps sortOps
+        allParams = map toText $ symbolVals (Proxy @syms)
+        buildSortOps sortOps =
+            let builtOps = flattenSortOperations buildSortOp sortOps
+                namedOps = zipWith mergeNameAndOp allParams builtOps
+                activeOps = catMaybes namedOps
+            in  case activeOps of
+                    [] -> "no sort"
+                    ss -> pretty . mconcat $ intersperse ", " ss
+        buildSortOp sortOp =
+            case sortOp of
+                SortIdentity           -> Nothing
+                SortByIndex sortType _ -> Just $ bprint build sortType
+        mergeNameAndOp _ Nothing      = Nothing
+        mergeNameAndOp name (Just op) = Just $ bprint (builder%" "%stext) op name
 
 -- | Parse the incoming HTTP query param into a 'SortOperation', failing if the input is not a valid operation.
 parseSortOperation :: forall a ix. (ToIndex a ix)
