@@ -13,13 +13,13 @@ Table of Contents
       * [Build and run in the nix store](#build-and-run-in-the-nix-store)
       * [Build and run a docker image](#build-and-run-a-docker-image)
       * [Migrating from V0 to V1 API](#migrating-from-v0-to-v1-api)
-      * [Usage FAQs](#usage-faqs)
-         * [What are recommended hardware/software requirements for exchange wallets?](#what-are-recommended-hardwaresoftware-requirements-for-exchange-wallets)
-         * [How do I customize the wallet configuration?](#how-do-i-customize-the-wallet-configuration)
-         * [How do I export the CA certificate for the API?](#how-do-i-export-the-ca-certificate-for-the-api)
-         * [How do I know when the wallet has fetched all the blocks?](#how-do-i-know-when-the-wallet-has-fetched-all-the-blocks)
-         * [Where can I find the API documentation?](#where-can-i-find-the-api-documentation)
-         * [How can I inspect runtime metrics and statistics?](#how-can-i-inspect-runtime-metrics-and-statistics)
+   * [Usage FAQs](#usage-faqs)
+      * [What are recommended hardware/software requirements for exchange wallets?](#what-are-recommended-hardwaresoftware-requirements-for-exchange-wallets)
+      * [How do I customize the wallet configuration?](#how-do-i-customize-the-wallet-configuration)
+      * [How do I export the CA certificate for the API?](#how-do-i-export-the-ca-certificate-for-the-api)
+      * [How do I know when the wallet has fetched all the blocks?](#how-do-i-know-when-the-wallet-has-fetched-all-the-blocks)
+      * [Where can I find the API documentation?](#where-can-i-find-the-api-documentation)
+      * [How can I inspect runtime metrics and statistics?](#how-can-i-inspect-runtime-metrics-and-statistics)
 
 # Requirements
 
@@ -155,9 +155,9 @@ name you used for any future docker commands in examples in the document.
 
 ## Migrating from V0 to V1 API
 
-## Usage FAQs
+# Usage FAQs
 
-### What are recommended hardware/software requirements for exchange wallets?
+## What are recommended hardware/software requirements for exchange wallets?
 
 RAM: 8 GB for building, 4 GB for running
 CPU: ???
@@ -165,7 +165,7 @@ Disk: SSD recommended of ??? size
 Operating System: NixOS or CentOS 7 recommended, although any linux distribution should work with nix package manager used for building the binaries
 Software Requirements: Nix package manager for building standalone and docker containers. On systems using docker, docker > ??? required.
 
-### How do I customize the wallet configuration?
+## How do I customize the wallet configuration?
 
 Before building the wallet copy `./sample-wallet-config.nix` to
 `./custom-wallet-config.nix` and edit as needed.
@@ -180,7 +180,7 @@ Supported options include:
     the network. When unspecified an appropriate
     default topology is generated.
 
-### How do I export the CA certificate for the API?
+## How do I export the CA certificate for the API?
 
 The certificate is generated inside the wallet in the file `tls/server.cert`
 
@@ -192,7 +192,7 @@ Please refer to your OS or browser documentation for how to import the CA
 certificate into your trusted `ca-certificates` file. The rest of this
 document will assume the certificate is trusted.
 
-### How do I know when the wallet has fetched all the blocks?
+## How do I know when the wallet has fetched all the blocks?
 
 You can check the sync progress using the API to get detailed json output:
 
@@ -203,10 +203,10 @@ The following command can be used to see the percentage completion of the sync o
 
     nix-shell -p jq curl --run 'curl -X GET "https://127.0.0.1:8090/api/v1/node-info" -H "accept: application/json;charset=utf-8" | jq .data.syncProgress.quantity'
 
-### Where can I find the API documentation?
+## Where can I find the API documentation?
 
 Run the latest wallet and go to <https://127.0.0.1:8090/docs/v1/index>.
 
-### How can I inspect runtime metrics and statistics?
+## How can I inspect runtime metrics and statistics?
 
 Current metrics and stats are available at <http://127.0.0.1:8000/>.
