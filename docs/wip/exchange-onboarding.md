@@ -75,6 +75,31 @@ expected.
 
     git rev-parse HEAD
 
+## Generate custom configuration
+
+The `cardano-sl` repo defaults to using end user topology and settings.
+For exchanges we recommend creating the following `custom-wallet-config.nix`
+prior to building `cardano-sl`:
+
+    {
+      #walletListen = "127.0.0.1:8090";
+      #ekgListen = "127.0.0.1:8000";
+      stateDir = "./cardano-state-1";
+      topologyFile = ./exchange-topology.yaml;
+    
+      ## See https://downloads.haskell.org/~ghc/8.0.2/docs/html/users_guide/runtime_control.html#running-a-compiled-program
+      #ghcRuntimeArgs = "-N2 -qg -A1m -I0 -T";
+    
+      ## Primarily used for troubleshooting.
+      #additionalNodeArgs = "";
+    }
+
+You will also need to add the following `exchange-topology.yaml` file to use the
+private relays:
+
+    TODO: private relays should be inserted here in document given to exchanges
+
+
 ## Build and run in the nix store
 
 By default the wallet's local state goes in
