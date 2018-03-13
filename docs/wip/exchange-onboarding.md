@@ -84,7 +84,7 @@ prior to building `cardano-sl`:
     {
       #walletListen = "127.0.0.1:8090";
       #ekgListen = "127.0.0.1:8000";
-      stateDir = "./cardano-state-1";
+      stateDir = "./state-wallet-mainnet";
       topologyFile = ./exchange-topology.yaml;
     
       ## See https://downloads.haskell.org/~ghc/8.0.2/docs/html/users_guide/runtime_control.html#running-a-compiled-program
@@ -93,6 +93,10 @@ prior to building `cardano-sl`:
       ## Primarily used for troubleshooting.
       #additionalNodeArgs = "";
     }
+
+The rest of this document will assume the above configuration file. Please
+alter any commands for example related to `stateDir` path to reflect your
+setup.
 
 You will also need to add the following `exchange-topology.yaml` file to use the
 private relays:
@@ -108,7 +112,7 @@ outside the git repository, see the FAQ about supported custom
 configuration settings (See section 2.4.1).
 
 Build the wallet and generate the shell script to connect to
-mainnet.
+mainnet (use `connectScripts.stagingWallet` for testnet)
 
     nix-build -A connectScripts.mainnetWallet -o "./launch_$(date -I)_$(git rev-parse --short HEAD)"
 
@@ -119,30 +123,44 @@ similar. Run that symlink as a script to start the wallet.
 ## Build and run a docker image
 
 Follow the above instructions for customization and dependencies. To build a docker
-container and import the image run:
+container and import the image run
+(use `connectScripts.stagingWallet` for testnet):
 
     docker load < $(nix-build -A dockerImages.mainnetWallet))
 
 This will create an image `cardano-container-mainnet:latest`
+(or `cardano-container-staging:latest` for testnet)
 
 After this image is built, it can be used like any other docker image being pushed
 into a registry and pulled down using your preferred docker orchestration tool.
 
-The image can be ran using:
+The image can be ran using the following:
 
-    docker run --rm -it -p 127.0.0.1:8090:8090 -p 127.0.0.1:8000:8000 -v cardano-state-1:/wallet cardano-container-mainnet:latest
+    docker run --name cardano-mainnet-wallet --rm -it -p 127.0.0.1:8090:8090 -p 127.0.0.1:8000:8000 -v state-wallet-mainnet:/wallet cardano-container-mainnet:latest
 
-The above command will create a docker volume named `cardano-state-1` and will mount
+The above command will create a docker volume named `state-wallet-mainnet` and will mount
 that to /wallet. Note: if no volume is mounted to `/wallet` the container startup
 script will refused to execute `cardano-node` and the container will exit.
 
 The location of `/wallet` cannot be changed, but you can mount any kind of volume
 you want in that directory that docker supports.
 
+Note that if you give this a different name than is specified above, use the
+name you used for any future docker commands in examples in the document.
+
+## Migrating from V0 to V1 API
+
 ## Usage FAQs
 
-### How do I customize the wallet configuration?
+### What are recommended hardware/software requirements for exchange wallets?
 
+RAM: 8 GB for building, 4 GB for running
+CPU: ???
+Disk: SSD recommended of ??? size
+Operating System: NixOS or CentOS 7 recommended, although any linux distribution should work with nix package manager used for building the binaries
+Software Requirements: Nix package manager for building standalone and docker containers. On systems using docker, docker > ??? required.
+
+### How do I customize the wallet configuration?
 
 Before building the wallet copy `./sample-wallet-config.nix` to
 `./custom-wallet-config.nix` and edit as needed.
@@ -157,27 +175,32 @@ Supported options include:
     the network. When unspecified an appropriate
     default topology is generated.
 
+### How do I export the CA certificate for the API?
+
+The certificate is generated inside the wallet in the file `tls/server.cert`
+
+If you are using the docker container, this can be output using the command:
+
+`docker exec -it cardano-mainnet-wallet cat /wallet/state-wallet-mainnet/tls/server.cert`
+
+Please refer to your OS or browser documentation for how to import the CA
+certificate into your trusted `ca-certificates` file. The rest of this
+document will assume the certificate is trusted.
+
 ### How do I know when the wallet has fetched all the blocks?
 
-Monitor the logs in the wallet's local state directory for lines
-like
+You can check the sync progress using the API to get detailed json output:
 
-    slot: 18262th slot of 25th epoch
+    curl -X GET "https://127.0.0.1:8090/api/v1/node-info" -H "accept: application/json;charset=utf-8"
+    {"data":{"syncProgress":{"quantity":100,"unit":"percent"},"blockchainHeight":{"quantity":738268,"unit":"blocks"},"localBlockchainHeight":{"quantity":738268,"unit":"blocks"},"localTimeDifference":{"quantity":0,"unit":"microseconds"}},"status":"success","meta":{"pagination":{"totalPages":1,"page":1,"perPage":1,"totalEntries":1}}}
 
-If any of the recent matches are more than a slot lower than the
-latest epoch and slot reported by [Cardano Explorer](https://cardanoexplorer.com/), the wallet is
-still syncing.
+The following command can be used to see the percentage completion of the sync only:
 
-
-You can check the sync progress via the API and validate the local and network
-block counts match.
-
-    $ curl -k https://localhost:8090/api/settings/sync/progress
-    {"Right":{"_spLocalCD":{"getChainDifficulty":{"getBlockCount":733869}},"_spNetworkCD":{"getChainDifficulty":{"getBlockCount":733869}},"_spPeers":0}}%
+    nix-shell -p jq curl --run 'curl -X GET "https://127.0.0.1:8090/api/v1/node-info" -H "accept: application/json;charset=utf-8" | jq .data.syncProgress.quantity'
 
 ### Where can I find the API documentation?
 
-Run the latest wallet and go to <https://127.0.0.1:8090/docs>.
+Run the latest wallet and go to <https://127.0.0.1:8090/docs/v1/index>.
 
 ### How can I inspect runtime metrics and statistics?
 
