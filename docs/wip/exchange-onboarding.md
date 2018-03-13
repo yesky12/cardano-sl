@@ -1,6 +1,7 @@
 Table of Contents
 =================
 
+   * [Table of Contents](#table-of-contents)
    * [Requirements](#requirements)
       * [Nix](#nix)
          * [Optional: Enable IOHK's binary cache](#optional-enable-iohks-binary-cache)
@@ -8,10 +9,14 @@ Table of Contents
    * [Mainnet Wallet](#mainnet-wallet)
       * [Backup local state](#backup-local-state)
       * [Fetch latest code](#fetch-latest-code)
+      * [Generate custom configuration](#generate-custom-configuration)
       * [Build and run in the nix store](#build-and-run-in-the-nix-store)
       * [Build and run a docker image](#build-and-run-a-docker-image)
+      * [Migrating from V0 to V1 API](#migrating-from-v0-to-v1-api)
       * [Usage FAQs](#usage-faqs)
+         * [What are recommended hardware/software requirements for exchange wallets?](#what-are-recommended-hardwaresoftware-requirements-for-exchange-wallets)
          * [How do I customize the wallet configuration?](#how-do-i-customize-the-wallet-configuration)
+         * [How do I export the CA certificate for the API?](#how-do-i-export-the-ca-certificate-for-the-api)
          * [How do I know when the wallet has fetched all the blocks?](#how-do-i-know-when-the-wallet-has-fetched-all-the-blocks)
          * [Where can I find the API documentation?](#where-can-i-find-the-api-documentation)
          * [How can I inspect runtime metrics and statistics?](#how-can-i-inspect-runtime-metrics-and-statistics)
