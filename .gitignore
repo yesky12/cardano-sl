@@ -84,3 +84,6 @@ wallet-new/bench/results/*.txt
 
 # cardano-state-* for wallet data
 cardano-state-*
+
+# exchange topology file
+exchange-topology.yaml
