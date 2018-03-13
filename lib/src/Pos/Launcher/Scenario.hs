@@ -11,7 +11,6 @@ module Pos.Launcher.Scenario
 
 import           Universum
 
-import           Control.Concurrent.STM (retry)
 import qualified Data.HashMap.Strict as HM
 import           Formatting (bprint, build, int, sformat, shown, (%))
 import           Mockable (Mockable, Async, withAsync, mapConcurrently)
@@ -29,7 +28,7 @@ import qualified Pos.DB.BlockIndex as DB
 import qualified Pos.GState as GS
 import           Pos.Launcher.Param (npNtpChecks)
 import           Pos.Launcher.Resource (NodeResources (..))
-import           Pos.Ntp.Check (NtpStatus (..), ntpSettings, withNtpCheck)
+import           Pos.Ntp.Check (NtpStatus (..), getNtpStatusOnce)
 import           Pos.Reporting (reportError)
 import           Pos.Slotting (waitSystemStart)
 import           Pos.Txp (bootDustThreshold)
@@ -54,7 +53,7 @@ runNode'
     -> [WorkerSpec m]
     -> [WorkerSpec m]
     -> WorkerSpec m
-runNode' NodeResources {..} workers' plugins' = ActionSpec $ \diffusion -> ntpCheck (npNtpChecks $ ncNodeParams nrContext) $ do
+runNode' NodeResources {..} workers' plugins' = ActionSpec $ \diffusion -> withNtpCheck (npNtpChecks $ ncNodeParams nrContext) $ do
     logInfo $ "Built with: " <> pretty compileInfo
     nodeStartMsg
     inAssertMode $ logInfo "Assert mode on"
@@ -106,17 +105,11 @@ runNode' NodeResources {..} workers' plugins' = ActionSpec $ \diffusion -> ntpCh
                     " failed with exception: "%shown)
             loggerName e
 
-    ntpCheck False action = action
-    ntpCheck True action = do
-        tvar <- newTVarIO Nothing
-        let settings = ntpSettings (ncNtpConfig nrContext) tvar
+    withNtpCheck False action = action
+    withNtpCheck True action =
         withAsync
-            (do
-                st <- atomically $ readTVar tvar >>= \case
-                    Nothing -> retry
-                    Just st -> return st
-                onNtpStatusLogWarning st)
-            (\_ -> withNtpCheck settings action)
+            (getNtpStatusOnce (ncNtpConfig nrContext) >>= onNtpStatusLogWarning)
+            (const action)
 
 -- | Entry point of full node.
 -- Initialization, running of workers, running of plugins.
