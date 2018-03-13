@@ -1,12 +1,11 @@
 Table of Contents
 =================
 
-   * [Table of Contents](#table-of-contents)
    * [Requirements](#requirements)
       * [Nix](#nix)
          * [Optional: Enable IOHK's binary cache](#optional-enable-iohks-binary-cache)
       * [Miscellaneous Utilities](#miscellaneous-utilities)
-   * [Mainnet Wallet](#mainnet-wallet)
+   * [Wallet](#wallet)
       * [Backup local state](#backup-local-state)
       * [Fetch latest code](#fetch-latest-code)
       * [Generate custom configuration](#generate-custom-configuration)
@@ -51,7 +50,7 @@ Use `nix` to install essential utilities.
 
     nix-env -i git
 
-# Mainnet Wallet
+# Wallet
 
 ## Backup local state
 
