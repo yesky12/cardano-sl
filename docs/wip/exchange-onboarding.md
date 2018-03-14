@@ -1,6 +1,8 @@
 Table of Contents
 =================
 
+   * [Table of Contents](#table-of-contents)
+   * [Communication](#communication)
    * [Requirements](#requirements)
       * [Nix](#nix)
          * [Optional: Enable IOHK's binary cache](#optional-enable-iohks-binary-cache)
@@ -11,14 +13,21 @@ Table of Contents
       * [Generate custom configuration](#generate-custom-configuration)
       * [Build and run in the nix store](#build-and-run-in-the-nix-store)
       * [Build and run a docker image](#build-and-run-a-docker-image)
-      * [Migrating from V0 to V1 API](#migrating-from-v0-to-v1-api)
+   * [Migrating from V0 to V1 API](#migrating-from-v0-to-v1-api)
    * [Usage FAQs](#usage-faqs)
       * [What are recommended hardware/software requirements for exchange wallets?](#what-are-recommended-hardwaresoftware-requirements-for-exchange-wallets)
       * [How do I customize the wallet configuration?](#how-do-i-customize-the-wallet-configuration)
       * [How do I export the CA certificate for the API?](#how-do-i-export-the-ca-certificate-for-the-api)
       * [How do I know when the wallet has fetched all the blocks?](#how-do-i-know-when-the-wallet-has-fetched-all-the-blocks)
+      * [How do I create a wallet with API?](#how-do-i-create-a-wallet-with-api)
+      * [How do I check balance of a wallet with API?](#how-do-i-check-balance-of-a-wallet-with-api)
       * [Where can I find the API documentation?](#where-can-i-find-the-api-documentation)
       * [How can I inspect runtime metrics and statistics?](#how-can-i-inspect-runtime-metrics-and-statistics)
+
+# Communication
+
+* An e-mail list needs to be provided by the exchange for IOHK to broadcast issues and upddates.
+* A slack room will be created for each exchange for direct communication with IOHK team.
 
 # Requirements
 
@@ -152,7 +161,7 @@ you want in that directory that docker supports.
 Note that if you give this a different name than is specified above, use the
 name you used for any future docker commands in examples in the document.
 
-## Migrating from V0 to V1 API
+# Migrating from V0 to V1 API
 
 # Usage FAQs
 
@@ -201,6 +210,10 @@ You can check the sync progress using the API to get detailed json output:
 The following command can be used to see the percentage completion of the sync only:
 
     nix-shell -p jq curl --run 'curl -X GET "https://127.0.0.1:8090/api/v1/node-info" -H "accept: application/json;charset=utf-8" | jq .data.syncProgress.quantity'
+
+## How do I create a wallet with API?
+
+## How do I check balance of a wallet with API?
 
 ## Where can I find the API documentation?
 
