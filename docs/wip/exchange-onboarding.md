@@ -1,7 +1,6 @@
 Table of Contents
 =================
 
-   * [Table of Contents](#table-of-contents)
    * [Communication](#communication)
    * [Requirements](#requirements)
       * [Nix](#nix)
@@ -19,8 +18,8 @@ Table of Contents
       * [How do I customize the wallet configuration?](#how-do-i-customize-the-wallet-configuration)
       * [How do I export the CA certificate for the API?](#how-do-i-export-the-ca-certificate-for-the-api)
       * [How do I know when the wallet has fetched all the blocks?](#how-do-i-know-when-the-wallet-has-fetched-all-the-blocks)
-      * [How do I create a wallet with API?](#how-do-i-create-a-wallet-with-api)
-      * [How do I check balance of a wallet with API?](#how-do-i-check-balance-of-a-wallet-with-api)
+      * [Creating a New Wallet](#creating-a-new-wallet)
+      * [Sending Money](#sending-money)
       * [Where can I find the API documentation?](#where-can-i-find-the-api-documentation)
       * [How can I inspect runtime metrics and statistics?](#how-can-i-inspect-runtime-metrics-and-statistics)
 
@@ -211,9 +210,137 @@ The following command can be used to see the percentage completion of the sync o
 
     nix-shell -p jq curl --run 'curl -X GET "https://127.0.0.1:8090/api/v1/node-info" -H "accept: application/json;charset=utf-8" | jq .data.syncProgress.quantity'
 
-## How do I create a wallet with API?
+## Creating a New Wallet
+You can create your first wallet using the POST /api/v1/wallets endpoint as follow:
 
-## How do I check balance of a wallet with API?
+    curl -X POST https://localhost:8090/api/v1/wallets                     \
+         -H "Content-Type: application/json; charset=utf-8"                \
+         -H "Accept: application/json; charset=utf-8"                      \
+         --cacert ./scripts/tls-files/ca.crt                               \
+         -d '{                                                             \
+      "operation": "create",                                               \
+      "backupPhrase": ["squirrel", "material", "silly", "twice", "direct", \
+        "slush", "pistol", "razor", "become", "junk", "kingdom", "flee"],  \
+      "assuranceLevel": "normal",                                          \
+      "name": "MyFirstWallet"                                              \
+    }'
+Warning: Those 12 mnemonic words given for the backup phrase act as an example. Do not use them on a production system. See the section below about mnemonic codes for more information.
+
+As a response, the API provides you with a wallet id used in subsequent requests to uniquely identity the wallet. Make sure to store it / write it down. Note that every API response is jsend-compliant; Cardano also augments responses with meta-data specific to pagination. More details in the section below about Pagination.
+
+    {
+        "status": "success",
+        "data": {
+            "id": "Ae2tdPwUPE...8V3AVTnqGZ",
+            "name": "MyFirstWallet",
+            "balance": 0
+        },
+        "meta": {
+            "pagination": {
+                "totalPages": 1,
+                "page": 1,
+                "perPage": 1,
+                "totalEntries": 1
+            }
+        }
+    }
+You have just created your first wallet. Information about this wallet can be retrieved using the GET /api/v1/wallets/{walletId} endpoint as follow:
+
+    curl -X GET https://localhost:8090/api/v1/wallets/{{walletId}} \
+         -H "Accept: application/json; charset=utf-8"              \
+         --cacert ./scripts/tls-files/ca.crt                       \
+
+##Receiving Money
+
+To receive money from other users you should provide your address. This address can be obtained from an account. Each wallet contains at least one account, you can think of account as a pocket inside of your wallet. Besides, you can view all existing accounts of a wallet by using the GET /api/v1/wallets/{{walletId}}/accounts endpoint as follow:
+
+    curl -X GET https://localhost:8090/api/v1/wallets/{{walletId}}/accounts?page=1&per_page=10 \
+         -H "Accept: application/json; charset=utf-8"                                          \
+         --cacert ./scripts/tls-files/ca.crt                                                   \
+Since you have, for now, only a single wallet, you’ll see something like this:
+
+    {
+        "status": "success",
+        "data": [
+            {
+                "index": 2147483648,
+                "addresses": [
+                    "DdzFFzCqrh...fXSru1pdFE"
+                ],
+                "amount": 0,
+                "name": "Initial account",
+                "walletId": "Ae2tdPwUPE...8V3AVTnqGZ"
+            }
+        ],
+        "meta": {
+            "pagination": {
+                "totalPages": 1,
+                "page": 1,
+                "perPage": 10,
+                "totalEntries": 1
+            }
+        }
+    }
+
+Each account has at least one address, all listed under the addresses field. You can communicate one of these addresses to receive money on the associated account.
+
+## Sending Money
+
+In order to send money from one of your account to another address, you can create a new payment transaction using the POST /api/v1/transactions endpoint as follow:
+
+    curl -X POST https://localhost:8090/api/v1/transactions \
+         -H "Content-Type: application/json; charset=utf-8" \
+         -H "Accept: application/json; charset=utf-8"       \
+         --cacert ./scripts/tls-files/ca.crt                \
+         -d '{                                              \
+      "destinations": [{                                    \
+        "amount": 14,                                       \
+        "address": "A7k5bz1QR2...Tx561NNmfF"                \
+      }],                                                   \
+      "source": {                                           \
+        "accountIndex": 0,                                  \
+        "walletId": "Ae2tdPwUPE...8V3AVTnqGZ"               \
+      }                                                     \
+    }'
+
+Note that, in order to perform a transaction, you need to have some existing coins on the source account! Beside, the Cardano API is designed to accomodate multiple recipients payments out-of-the-box; notice how destinations is a list of addresses.
+
+When the transaction succeeds, funds are becomes unavailable from the sources addresses, and available to the destinations in a short delay. Note that, you can at any time see the status of your wallets by using the GET /api/v1/transactions/{{walletId}} endpoint as follow:
+
+    curl -X GET https://localhost:8090/api/v1/wallets/{{walletId}}?account_index=0  \
+         -H "Accept: application/json; charset=utf-8"                               \
+         --cacert ./scripts/tls-files/ca.crt                                        \
+
+We have here constrainted the request to a specific account, with our previous transaction the output should look roughly similar to this:
+
+    {
+        "status": "success",
+        "data": [
+            {
+                "amount": 14,
+                "inputs": [{
+                  "amount": 14,
+                  "address": "DdzFFzCqrh...fXSru1pdFE"
+                }],
+                "direction": "outgoing",
+                "outputs": [{
+                  "amount": 14,
+                  "address": "A7k5bz1QR2...Tx561NNmfF"
+                }],
+                "confirmations": 42,
+                "id": "43zkUzCVi7...TT31uDfEF7",
+                "type": "local"
+            }
+        ],
+        "meta": {
+            "pagination": {
+                "totalPages": 1,
+                "page": 1,
+                "perPage": 10,
+                "totalEntries": 1
+            }
+        }
+    }
 
 ## Where can I find the API documentation?
 
